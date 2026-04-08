@@ -18,3 +18,8 @@
 # them for future reference.
 
 source config.custom.nu
+
+# Shouldn't this be in config.table.footer_mode?
+$env.config.footer_mode = "auto"
+$env.config.table.mode = "light"
+$env.config.table.header_on_separator = true

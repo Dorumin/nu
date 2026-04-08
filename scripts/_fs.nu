@@ -6,6 +6,7 @@ export def greplink [
 	target: string # The target folder to copy files that match into
 	--delete(-d) # Delete the folder before copying
     --threads(-t): int = 16 # The level of parallelism
+    --hard
 ] {
     if $delete {
         rm -rf $target
@@ -48,7 +49,7 @@ export def greplink [
     #     }
     # } { regex: $regex, target: $target } | ignore
     glob -DS $files | par-each --threads $threads { |path|
-        let matched = open $path --raw | decode utf-8 | parse -r $regex | is-not-empty
+        let matched = open $path --raw | decode utf-8 | parse --backtrack 1_000_000_000 -r $regex | is-not-empty
 
         if $matched {
             let size = ls -D $path | get 0.size
@@ -66,7 +67,7 @@ export def greplink [
 			print -e $"Linking: (ansi yellow)($base)(ansi reset) \((ansi green)($size)(ansi reset)\)"
 
             try {
-                ml $link_path $path | ignore
+                ml --hard=$hard $link_path $path | ignore
             } catch { |e|
                 print $"error: ($e)"
             }
@@ -153,7 +154,6 @@ export def fill-file-hashes [] {
                 return
             }
 
-            # cat is probably faster
             let hash = open $row.file_path --raw | hash sha256
 
             print -e $"computed hash: ($hash)"
@@ -208,6 +208,7 @@ export def ml [
     target: path # The path the symlink will point to
     --force(-f)
     --clobber
+    --hard
 ] {
     let source_path = $source | path expand
     let target_path = $target | path expand
@@ -266,7 +267,7 @@ export def ml [
     if $target_stat.type == 'dir' {
         mklink /D $source $target
     } else {
-        mklink $'"($source)"' $'"($target)"'
+        mklink ...(if $hard { [ '/H' ] }) $'"($source)"' $'"($target)"'
     }
 
     if not $dont_copy_meta {

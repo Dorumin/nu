@@ -898,6 +898,16 @@ export def _batched-av1 [
     rm files.txt ...$results.path
 }
 
+export def 'vid concat' [
+    paths
+    output
+    --framerate: int = 30
+] {
+    $paths | each { |p| $"file '($p)'" } | str join "\n" | save files.txt
+
+    ffmpeg -r $framerate -f concat -safe 0 -i files.txt -y $output
+}
+
 # Defines how much it can overshoot the bitrate assigned - it shouldn't matter for 2-pass, but it does
 # It makes it (a tiny bit) more aggressive in spiking the bitrate. It's still good w/o this
 const OVERSHOOT_PCT_PERCENT = 100

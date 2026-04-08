@@ -15,9 +15,9 @@ def ex [] { explorer . | complete | ignore }
 alias pn = pnpm
 
 # YTDL "config"
-alias ytdl = yt-dlp.exe -o ($env.USERPROFILE + '\Downloads\%(title)s [%(id)s].%(ext)s')
-alias ytdl-mp3 = yt-dlp.exe --extract-audio --audio-format mp3 -o ($env.USERPROFILE + '\Downloads\%(title)s [%(id)s].%(ext)s')
-alias ytdlc = yt-dlp.exe -o ($env.PWD | path join '%(title)s [%(id)s].%(ext)s')
+alias ytdl = yt-dlp.exe --js-runtimes node -o ($env.USERPROFILE + '\Downloads\%(title)s [%(id)s].%(ext)s')
+alias ytdl-mp3 = yt-dlp.exe --js-runtimes node --extract-audio --audio-format mp3 -o ($env.USERPROFILE + '\Downloads\%(title)s [%(id)s].%(ext)s')
+alias ytdlc = yt-dlp.exe --js-runtimes node -o ($env.PWD | path join '%(title)s [%(id)s].%(ext)s')
 alias yt = ytdl (bp)
 
 # Brain shortcuts
