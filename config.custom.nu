@@ -5,8 +5,8 @@ use scripts/mod.nu *
 # Default to ~/Code
 let normal_pwd = ($env.PWD | str downcase)
 let redirect_pwds = [
-    ($env.windir | path join System32 | str downcase),
-    ($env.USERPROFILE | path join .cargo bin | str downcase)
+    ($env.windir? | default '' | path join System32 | str downcase),
+    ($env.USERPROFILE? | default $env.HOME | path join .cargo bin | str downcase)
 ]
 
 let next_pwd = if $normal_pwd in $redirect_pwds {

@@ -333,7 +333,7 @@ export def 'vid _format-duration' [
 # | 8 | 0.962884 | 30s (0.25x)       | 119 |
 # | 9 | 0.959705 | 22.8s (0.19x)     | 157 |
 # | - | -------- | ----------------- | --- |
-export def 'vid av1-legacy' [
+export def 'vid av1' [
     path: path
     --crf: int
     --preset(-p): int = 5
@@ -363,7 +363,7 @@ export def 'vid av1-legacy' [
     --count # If target path exists, add a counting number instead of aborting. Makes no sense with --overwrite
 
     # --log-level: int = 1 # Set to 3 to print encoder info. SvtApp has useless, irremediable warnings
-    # --tune: int = 0 # 0: vq, 1: psnr, 2: ssim
+    # --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
     # --start: string = "0"
     # --end: string = "10000000"
     # --scd # Setting scd makes svt complain (but it always does)
@@ -920,7 +920,7 @@ export def 'vid 2p av1' [
     --audio-bitrate(-a): oneof<filesize, int>
     --max: int # The max dimensions of the smaller side (vertical for landscape, horizontal for portrait)
     --log-level: int = 1 # Set to 3 to print encoder info. SvtApp has useless, irremediable warnings
-    --tune: int = 0 # 0: vq, 1: psnr, 2: ssim
+    --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
     --tbr: filesize # Override total bitrate - ignores target_size parameter. Bytes interpreted as bits (1mb = 1mbit)
     --start: string = "0"
     --end: string = "10000000"
@@ -1079,7 +1079,7 @@ export def 'vid av1 crf' [
     --audio-bitrate(-a): oneof<filesize, int> = 96kb
     --max: int # The max dimensions of the smaller side (vertical for landscape, horizontal for portrait)
     --log-level: int = 1 # Set to 3 to print encoder info. SvtApp has useless, irremediable warnings
-    --tune: int = 0 # 0: vq, 1: psnr, 2: ssim
+    --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
     --start: string = "0"
     --end: string = "10000000"
     --scd # Setting scd makes svt complain (but it always does)
@@ -1416,7 +1416,7 @@ export def get-crf-bitrate [
     --crf: int = 35
     --preset(-p): int = 6
     --max: int = 1080
-    --tune: int = 0
+    --tune: int = 1
     --mbr: filesize = 1.5mb
     --keyint: int = 289
     --start: string = "0"
@@ -1468,7 +1468,7 @@ export def 'vid 2p av1 crf' [
     --audio-bitrate(-a): oneof<filesize, int> = 96kb
     --max: int = 1080 # The max dimensions of the smaller side (vertical for landscape, horizontal for portrait)
     --log-level: int = 1 # Set to 3 to print encoder info. SvtApp has useless, irremediable warnings
-    --tune: int = 0 # 0: vq, 1: psnr, 2: ssim
+    --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
     --tbr: filesize = 1.5mb # Maximum total bitrate. Bytes interpreted as bits (1mb = 1mbit)
     --tbr2p: filesize = 3mb # Maximum bitrate used for the fallback 2-pass mode
     --rm
@@ -1504,7 +1504,7 @@ export def 'vid 2p av1 crf' [
         # (despite using it more efficiently). So 1.8mbit might be 1.4mbit, and 2.3mbit might be 2mbit
         vid 2p av1 $path --preset $preset --tbr $tbr2p --audio-bitrate $audio_bitrate --max $max --tune $tune --rm=$rm
     } else {
-        vid av1-legacy $path --preset $preset --audio-bitrate $audio_bitrate --max $max --rm=$rm
+        vid av1 $path --preset $preset --audio-bitrate $audio_bitrate --max $max --rm=$rm
     }
 }
 
@@ -1529,7 +1529,7 @@ export def 'vid av1-folder' [
             $video_bitrate
         }
 
-        vid av1 crf $p --rm --max $max --video-bitrate $video_bitrate --preset $preset --crf $crf
+        vid av1 $p --rm --max $max --video-bitrate $video_bitrate --preset $preset --crf $crf
     } | ignore
 }
 
@@ -1689,7 +1689,7 @@ export def 'vid avif' [
     --crf: int = 22
     --preset(-p): int = 0 # maps to cpu-used, 0..6
     --max: int # The max dimensions of the smaller side (vertical for landscape, horizontal for portrait)
-    --tune: int = 0 # 0: vq, 1: psnr, 2: ssim
+    --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
     --fmt = "yuv420p" # Some decoders (like C# AvifNative for paint.net or ImageGlass) fail for BIG images in 10bit
     --denoiser: int = 0 # 4 is good and reduces file size but sometimes just fails silently
     --svt # svt will fail for images under 4px, but also for images under 25px (bug?) might also not handle uneven res

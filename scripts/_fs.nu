@@ -341,39 +341,39 @@ def is-tag-worthwhile [ tag, --depth: int = 0 ]: [any -> bool] {
     return true
 }
 
-alias glob-original = glob
-export def glob [
-    glob: string # The glob expression.
-    --depth(-d): int # directory depth to search
-    --no-dir(-D) # Whether to filter out directories from the returned paths
-    --no-file(-F) # Whether to filter out files from the returned paths
-    --no-symlink(-S) # Whether to filter out symlinks from the returned paths
-    --exclude(-e): list<string> # Patterns to exclude from the search: `glob` will not walk the inside of directories matching the excluded patterns.
-] {
-    let parsed = $glob | path parse
-    let glob = if $parsed.prefix != '' {
-        # if blocks don't have scoped env; the command does
-        let root = $"($parsed.prefix)(char psep)"
-        cd $root
+# alias glob-original = glob
+# export def glob [
+#     glob: string # The glob expression.
+#     --depth(-d): int # directory depth to search
+#     --no-dir(-D) # Whether to filter out directories from the returned paths
+#     --no-file(-F) # Whether to filter out files from the returned paths
+#     --no-symlink(-S) # Whether to filter out symlinks from the returned paths
+#     --exclude(-e): list<string> # Patterns to exclude from the search: `glob` will not walk the inside of directories matching the excluded patterns.
+# ] {
+#     let parsed = $glob | path parse
+#     let glob = if $parsed.prefix != '' {
+#         # if blocks don't have scoped env; the command does
+#         let root = $"($parsed.prefix)(char psep)"
+#         cd $root
 
-        $glob | path relative-to $root | str replace -a (char psep) '/'
-    } else {
-        $glob | str replace -a (char psep) '/'
-    }
-    let depth = if $depth == null {
-        # Optimize default depth as much as we can, since we can't pass in a null with --depth=$depth
-        if ($glob | str contains "**") {
-            65536
-        } else {
-            # Something like /{a/b,c/d}/ will be overcounted with this strategy
-            $glob | path split | length
-        }
-    } else {
-        $depth
-    }
+#         $glob | path relative-to $root | str replace -a (char psep) '/'
+#     } else {
+#         $glob | str replace -a (char psep) '/'
+#     }
+#     let depth = if $depth == null {
+#         # Optimize default depth as much as we can, since we can't pass in a null with --depth=$depth
+#         if ($glob | str contains "**") {
+#             65536
+#         } else {
+#             # Something like /{a/b,c/d}/ will be overcounted with this strategy
+#             $glob | path split | length
+#         }
+#     } else {
+#         $depth
+#     }
 
-    glob-original $glob --depth=$depth --no-dir=$no_dir --no-file=$no_file --no-symlink=$no_symlink --exclude=$exclude
-}
+#     glob-original $glob --depth=$depth --no-dir=$no_dir --no-file=$no_file --no-symlink=$no_symlink --exclude=$exclude
+# }
 
 # Normalized explorer command
 export def explorer [
