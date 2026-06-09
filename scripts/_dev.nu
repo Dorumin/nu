@@ -38,7 +38,7 @@ export def pin-procs-loop [
 }
 
 # Generate a wrapping command with copied flags as another
-export def "make wrapper" [
+export def 'make wrapper' [
     command: string@get-commands
     --exported = true
 ] {
@@ -81,4 +81,51 @@ export def "make wrapper" [
     } | str join "\n"
 
     $"(if $exported { 'export ' })def ($command)-wrapper [\n($argslist)] {\n    ($command) # TODO: Pass through flags\n}"
+}
+
+def 'version update' [] {
+    let root = mktemp --tmpdir --directory
+    let moved_exe = mktemp --tmpdir --dry XXXXXX.oldnu.exe
+
+    cargo install nu --root $root
+
+    mv $nu.current-exe $moved_exe
+
+    print $"moved ($nu.current-exe) to ($moved_exe)"
+
+    mv $"($root)/bin/nu.exe" $nu.current-exe
+
+    rm -r $root
+
+    print $"moved new nu binary to ($nu.current-exe)"
+}
+
+def 'version clean' [] {
+    cd $nu.temp-dir
+
+    rm ...(glob *.oldnu.exe)
+}
+
+export def diff-data-file [
+    a
+    b
+    --nogit
+] {
+    let af = mktemp
+    let bf = mktemp
+
+    def read [ path ] { if ($path | describe) == 'string' and ($path | path exists) { open $path } else { $path } | table -e | ansi strip | str replace -ar '(?m)\s+$' '' }
+
+    read $a | save -f $af
+    read $b | save -f $bf
+
+    let out = if $nogit {
+        diff --color=always -U3 $bf $af | complete | get stdout
+    } else {
+        git diff --no-index --word-diff=color $bf $af | complete | get stdout
+    }
+
+    rm $af $bf
+
+    $out
 }

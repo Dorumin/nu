@@ -6,7 +6,7 @@ use scripts/mod.nu *
 let normal_pwd = ($env.PWD | str downcase)
 let redirect_pwds = [
     ($env.windir? | default '' | path join System32 | str downcase),
-    ($env.USERPROFILE? | default $env.HOME | path join .cargo bin | str downcase)
+    ($env.USERPROFILE? | default $env.HOME? | path join .cargo bin | str downcase)
 ]
 
 let next_pwd = if $normal_pwd in $redirect_pwds {
@@ -30,7 +30,12 @@ $env.config.ls.clickable_links = false
 $env.config.filesize.unit = 'binary'
 
 # Tables
+$env.config.table.mode = "light"
+$env.config.table.header_on_separator = true
 $env.config.table.index_mode = 'always'
+
+# Shouldn't this be in config.table.footer_mode?
+$env.config.footer_mode = 'always'
 
 # Cursor
 $env.config.cursor_shape.emacs = 'line'

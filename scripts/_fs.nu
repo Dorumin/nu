@@ -264,10 +264,16 @@ export def ml [
         rm $source
     }
 
-    if $target_stat.type == 'dir' {
-        mklink /D $source $target
+    let result = if $target_stat.type == 'dir' {
+        mklink /D $source $target | complete
     } else {
-        mklink ...(if $hard { [ '/H' ] }) $'"($source)"' $'"($target)"'
+        mklink ...(if $hard { [ '/H' ] }) $'"($source)"' $'"($target)"' | complete
+    }
+
+    if $result.exit_code != 0 {
+        error make {
+            msg: $result.stderr
+        }
     }
 
     if not $dont_copy_meta {
@@ -424,11 +430,11 @@ export def 'list-hashes' [] {
     }
 }
 
-export def "du-native" [] {
+export def 'du-native' [] {
     ^du -ab | lines | parse -r '(?<bytes>\d+)\s+(?<path>.+)' | update bytes { into int | $in * 1b }
 }
 
-export def "ls-recursive-native" [] {
+export def 'ls-recursive-native' [] {
     ^ls -R | lines | generate { |line, state = { ready: true, path: null }|
         if $state.ready == true {
             return {
@@ -482,5 +488,26 @@ export def cp-symlinks [
 
     $symlinks | each { |sym|
         ml ($to | path join $sym.name) $sym.target --force=$force
+    }
+}
+
+export def distribute-hashed-files [
+    root
+    --limit: int = 1
+] {
+    take $limit | par-each { |row|
+        let target_dir = $'($root)\($row.hash | str substring 0..1)\($row.hash | str substring 2..2)'
+        let target_path = $target_dir | path join $"($row.hash).png"
+        mkdir $target_dir
+
+        try {
+            mv $row.path $target_path
+
+            ml $row.path $target_path --hard
+        } catch { |e|
+            print $"($row.path)"
+        }
+
+        null
     }
 }

@@ -41,7 +41,7 @@ export def cloudflare [ port ] {
     }
 }
 
-export def "cloudflare update" [] {
+export def 'cloudflare update' [] {
     let path = which cloudflared | first | get path
 
     let url = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'

@@ -59,7 +59,8 @@ Windows Registry Editor Version 5.00
 "Icon"="C:\\Users\\Doru\\.cargo\\bin\\nu.exe"
 "SubCommands"="DoruVid.cut;DoruVid.cutAv1;DoruVid.plot;DoruVid.togif"
 
-[HKEY_CLASSES_ROOT\VLC.mov\shell\DoruVid]
+; mipivi
+[HKEY_CLASSES_ROOT\Applications\mpv.exe\shell\DoruVid]
 "MUIVerb"="Vid tools"
 "Icon"="C:\\Users\\Doru\\.cargo\\bin\\nu.exe"
 "SubCommands"="DoruVid.cut;DoruVid.cutAv1;DoruVid.plot;DoruVid.togif"

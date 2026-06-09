@@ -1,6 +1,6 @@
 use _str.nu *
 
-# Clear terminal but without losing data
+# Clear terminal but without losing scrollback
 export def 'term clear-spaced' [] {
     0..(term size | get rows) | each { print "" }
     clear -k
@@ -36,7 +36,9 @@ export def 'term get-cursor-pos' [
 }
 
 # Get the current position of the cursor
-export def 'term retain-position' [ closure: closure ] {
+export def 'term retain-position' [
+    closure: closure
+] {
     let pos = term get-cursor-pos
 
     do $closure
@@ -44,17 +46,40 @@ export def 'term retain-position' [ closure: closure ] {
     term move-cursor $pos.x $pos.y
 }
 
+# Print text at a specific position without permanently moving the cursor
+export def 'term print-at' [
+    x: int
+    y: int
+    text: string
+    --restore (-r) # Restore cursor after printing
+    --clear-line (-c) # Clear rest of line
+] {
+    let original = if $restore {
+        term get-cursor-pos
+    }
+
+    term move-cursor $x $y
+    print -n $text
+
+    if $clear_line {
+        term clear-rest-of-line
+    }
+
+    if $restore {
+        term move-cursor $original.x $original.y
+    }
+}
+
 export def 'term clear-rest-of-line' [] {
-    let size = term size
-    let pos = term get-cursor-pos
+    print -n "\e[K"
+}
 
-    # Max - current column is the amount of characters remaining until wrapping
-    # Current can never == max, so the empty space print can never be empty
-    # After the print, the cursor will be at the end of the cleared line,
-    # despite the fact that printing any more characters will spill onto the next line.
-    # I'm not sure why this happens. Being on the last column should mean
-    # that printing another character will be on that row, and then move to the next.
-    let spaces_to_print = $size.columns - $pos.x
+# Clear entire current line
+export def 'term clear-line' [] {
+    print -n "\e[2K"
+}
 
-    print -n (str repeat " " $spaces_to_print)
+# Clear from cursor to end of screen
+export def 'term clear-rest-of-screen' [] {
+    print -n "\e[J"
 }

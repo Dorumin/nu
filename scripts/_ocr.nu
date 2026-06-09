@@ -1,4 +1,5 @@
 use _fs.nu
+use _dev.nu
 
 def create-db-if-missing [] {
     let exists = '!ocr.db' | path exists
@@ -35,7 +36,13 @@ export def 'ocr scan' [] {
     let handle = open !ocr.db
     # Importing full and keeping in memory is much faster for normal amounts of files
     # (up to ~100% faster at ~30000 images)
-    let start_dataset = $handle | query db "SELECT path, last_checked FROM ocr_results_v0" | transpose -rd
+    mut start_dataset = $handle | query db "SELECT path, last_checked FROM ocr_results_v0" | transpose -rd
+
+    if ($start_dataset | describe -d | get type) == 'list' {
+        $start_dataset = {}
+    }
+
+    let start_dataset = $start_dataset
 
     glob '**/*.{jpg,jpeg,png}' | path relative-to $env.PWD | enumerate | par-each -t 4 { |item|
         let path = $item.item
@@ -65,10 +72,14 @@ export def 'ocr scan' [] {
                 text: $text,
                 modified: $meta.modified
             }
+
+            null
         } else {
             print $"\r($clear_bar)\r($path) \(($index)) \(cached)" -n
         }
     }
+
+    null
 }
 
 export def 'ocr search' [
@@ -81,6 +92,7 @@ export def 'ocr search' [
     # in the query would be meaningless. It might optimize the keyword search though,
     # but I don't think sqlite comes with a decent regex implementation
     let results = open !ocr.db | query db "SELECT * FROM ocr_results_v0"
+
     let filtered = $results
         | par-each { |row|
             let is_match = $keywords | all { |kw|

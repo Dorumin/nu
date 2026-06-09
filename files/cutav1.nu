@@ -32,7 +32,7 @@ def update-screencap [ path: string, time: string, preview_path: string ] {
 # |  1 | 0.997313 | 75m 22.4s | 2.1 | Probably as low as you want to go (at lower resolutions), but...
 # |  0 | 0.997390 | 196m 54s  | 0.8 | preset 0 can still improve color accuracy and moving shapes
 def main [ file: string ] {
-    let paths = collate $file --wait 150ms --interval 55ms | sort-by value -i
+    let paths = collate $file --wait 350ms --interval 55ms | sort-by value -i
 
     let db_path = $nu.temp-dir | path join cutav1.db
     let timecode_path = $nu.temp-dir | path join modal_timecode.txt
@@ -80,6 +80,8 @@ def main [ file: string ] {
     }
 
     let watcher_id = job spawn {
+        touch $timecode_path
+
         watch -q $timecode_path | reduce -f null { |_, last|
             try {
                 let lines = open $timecode_path | decode utf-8 | lines | str trim

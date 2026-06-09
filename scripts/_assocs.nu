@@ -8,7 +8,7 @@ def ftype_complete [] {
 }
 
 # Sets the user wide file type association
-export def "set ftype" [
+export def 'set ftype' [
     ftype: string@"ftype_complete",
     command: string
 ] {

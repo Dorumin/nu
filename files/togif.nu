@@ -24,7 +24,7 @@ def update-screencap [
 }
 
 def main [ file: string ] {
-    let paths = collate $file --wait 150ms --interval 55ms | sort-by value -i
+    let paths = collate $file --wait 350ms --interval 55ms | sort-by value -i
 
     if ($paths | is-empty) {
         return
@@ -34,7 +34,6 @@ def main [ file: string ] {
     let timecode_path = $nu.temp-dir | path join modal_timecode.txt
     let preview_path = $nu.temp-dir | path join modal_preview.jpg
 
-    touch $timecode_path
     sqlite init $db_path [
         "
             CREATE TABLE IF NOT EXISTS key_values (
@@ -65,6 +64,8 @@ def main [ file: string ] {
     let formatted_duration = vid _format-duration $max_duration
 
     let watcher_id = job spawn {
+        touch $timecode_path
+
         watch -q $timecode_path | reduce -f null { |_, last|
             try {
                 let rawf = open $timecode_path | decode utf-8
@@ -272,7 +273,7 @@ $previewPictureBox.Add_MouseUp({
             {
                 key: 'dithering',
                 type: 'dropdown',
-                label: 'Dithering',
+                label: 'Dithering (just use sierra2_4a or none)',
                 options: [
                     { label: 'None', value: 'none' },
                     { label: 'Atkinson', value: 'atkinson' },

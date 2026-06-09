@@ -18,8 +18,12 @@ export def time [
     $result
 }
 
+export def type-of [v] {
+    $v | describe -d | get type
+}
+
 export def type-is [v, ty: string] {
-    ($v | describe -d | get type) == $ty
+    (type-of $v) == $ty
 }
 
 export def do-spawn [ clos: closure ] {

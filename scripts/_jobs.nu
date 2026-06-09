@@ -1,5 +1,30 @@
+use _term.nu *
+
 const FREE_TAG = 64001
 const WORK_TAG = 64002
+
+alias core-job-send = job send
+
+# Like job send except you can send the payload as the 2nd argument if you feel like it
+export def 'job send' [
+    id: int
+    payload?
+    --tag: int
+] {
+    if $payload != null {
+        if $tag == null {
+            $payload | core-job-send $id
+        } else {
+            $payload | core-job-send $id --tag=$tag
+        }
+    } else {
+        if $tag == null {
+            core-job-send $id
+        } else {
+            core-job-send $id --tag=$tag
+        }
+    }
+}
 
 def 'job flush tag' [ tag: int ] {
     loop {
@@ -88,6 +113,42 @@ export def 'job pool free' [] {
     job flush tag $FREE_TAG
 
     return $available | get loopback
+}
+
+# Receives messages
+#
+export def 'job printer' [] {
+    job spawn {
+        mut state = {}
+
+        def format-text [ text, state ] {
+            ($text
+                | str replace -ra '\$count:(\w+)' { |key|
+                    $state | get -o $key | default 0 | to text
+                }
+                | str replace -ra '\$val:(\w+)' { |key|
+                    $state | get -o $key | default $key | to text
+                }
+            )
+        }
+
+        loop {
+            let message = job recv
+
+            if $message.type == 'print' {
+                let state = $state
+
+                print (format-text $message.text $state) --no-newline=($message.newline? == false)
+            } else if $message.type == 'print-at' {
+                let state = $state
+                term print-at $message.x $message.y (format-text $message.text $state) --clear-line
+            } else if $message.type == 'update' {
+                $state = $state | upsert $message.key $message.value
+            } else if $message.type == 'increment' {
+                $state = $state | upsert $message.key { default 0 | $in + 1 }
+            }
+        }
+    }
 }
 
 # Stolem: https://discord.com/channels/601130461678272522/615253963645911060/1426978963242356896

@@ -133,21 +133,25 @@ export def 'vid size-report' [
 
 export def 'vid get-default-scaling' [
     path: path,
-    --max: int = 1080
+    --max: int = 1080 # Set to negative to clamp to the non-dominant axis (e.g. 1080p width -> 600p height)
     # -2 to scale to multiples of 2 for derived aspect ratio resolution
     # Used to return null, -2 is more convenient, and always defaulted to that
     # Keep this file clean if returned to null
     --dominant-sentinel = -2
-    --expand
+    --expand # Compute the non-fixed axis (dominant if --max > 0, non-dominant if < 0)
 ] {
     let meta = vid get-meta $path
-    mut max_height = if $meta.width >= $meta.height {
-        [$meta.height, $max] | math min
+    let abs_max = $max | math abs
+    let reversed = $max < 0
+    let w_dominates = $meta.width >= $meta.height
+    let h_dominates = $meta.height > $meta.width
+    mut max_height = if (not $reversed and $w_dominates) or ($reversed and $h_dominates) {
+        [$meta.height, $abs_max] | math min
     } else {
         $dominant_sentinel
     }
-    mut max_width = if $meta.height > $meta.width {
-        [$meta.width, $max] | math min
+    mut max_width = if (not $reversed and $h_dominates) or ($reversed and $w_dominates) {
+        [$meta.width, $abs_max] | math min
     } else {
         $dominant_sentinel
     }
@@ -363,7 +367,7 @@ export def 'vid av1' [
     --count # If target path exists, add a counting number instead of aborting. Makes no sense with --overwrite
 
     # --log-level: int = 1 # Set to 3 to print encoder info. SvtApp has useless, irremediable warnings
-    # --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
+    --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
     # --start: string = "0"
     # --end: string = "10000000"
     # --scd # Setting scd makes svt complain (but it always does)
@@ -447,7 +451,7 @@ export def 'vid av1' [
         # consider: scm=1, slows down considerably, smaller file sizes
         # consider: scd=1, except svt av1 warns when using it
 
-        -svtav1-params $'tune=0:enable-overlays=($overlays | into int):scd=($scd | into int)'
+        -svtav1-params $'tune=($tune):enable-overlays=($overlays | into int):scd=($scd | into int)'
         -metadata $"comment='Encoded from video of size ($stat.size | into string)'"
         # Keyframe interval
         -g 289
@@ -1023,8 +1027,8 @@ export def 'vid 2p av1' [
         # 120-90kbps for 720p video
         # 75-55kbit for 480p video
         # (... but this is just a heuristic, and I choose the values)
-        0..120 => 480,
-        120..250 => 720,
+        0..100 => 480,
+        100..250 => 720,
         _ => 1080
     })
     let scale = vid get-default-scaling $path --max $max_res
@@ -1401,6 +1405,10 @@ export def 'vid extract-frames' [
             # -color_primaries bt709
             -i $path
             -vf $vf
+            # Jpeg is very noticeable with its 8x8 dct blocks
+            # It's hard to move away from, but this helps a lot (--format png very big)
+            # Better formats are slower to encode and more annoying to decode
+            -q:v 1
             -fps_mode vfr
             $template
         )
@@ -1461,52 +1469,52 @@ export def get-crf-bitrate [
     $target_size / $duration_secs * 8
 }
 
-export def 'vid 2p av1 crf' [
-    path: path
-    --crf: int = 35
-    --preset(-p): int = 6
-    --audio-bitrate(-a): oneof<filesize, int> = 96kb
-    --max: int = 1080 # The max dimensions of the smaller side (vertical for landscape, horizontal for portrait)
-    --log-level: int = 1 # Set to 3 to print encoder info. SvtApp has useless, irremediable warnings
-    --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
-    --tbr: filesize = 1.5mb # Maximum total bitrate. Bytes interpreted as bits (1mb = 1mbit)
-    --tbr2p: filesize = 3mb # Maximum bitrate used for the fallback 2-pass mode
-    --rm
-] {
-    if $path =~ '\.min\.' {
-        print (ansiwrap yellow $"Skipping ($path | path basename): looks already compressed")
-        return
-    }
+# export def 'vid 2p av1 crf' [
+#     path: path
+#     --crf: int = 35
+#     --preset(-p): int = 6
+#     --audio-bitrate(-a): oneof<filesize, int> = 96kb
+#     --max: int = 1080 # The max dimensions of the smaller side (vertical for landscape, horizontal for portrait)
+#     --log-level: int = 1 # Set to 3 to print encoder info. SvtApp has useless, irremediable warnings
+#     --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
+#     --tbr: filesize = 1.5mb # Maximum total bitrate. Bytes interpreted as bits (1mb = 1mbit)
+#     --tbr2p: filesize = 3mb # Maximum bitrate used for the fallback 2-pass mode
+#     --rm
+# ] {
+#     if $path =~ '\.min\.' {
+#         print (ansiwrap yellow $"Skipping ($path | path basename): looks already compressed")
+#         return
+#     }
 
-    $env.SVT_LOG = $log_level
+#     $env.SVT_LOG = $log_level
 
-    let target = vid get-default-filename $path --ext mp4
-    if ($target | path exists) {
-        print (ansiwrap yellow $"Skipping ($path | path basename): already compressed")
-        return
-    }
+#     let target = vid get-default-filename $path --ext mp4
+#     if ($target | path exists) {
+#         print (ansiwrap yellow $"Skipping ($path | path basename): already compressed")
+#         return
+#     }
 
-    let predicted_crf = get-crf-bitrate $path
-    # CRF overshoot tends to cap out at 15%, and we add a 10% floor for 25%
-    # Why? Our prediction is based on the first 5min of video. This segment can be lower entropy (intros, low action)
-    # and take up a larger portion of the "total" size. Fallback 2-pass encodes at a higher target, so we compensate
-    let threshold = $tbr * 0.9
+#     let predicted_crf = get-crf-bitrate $path
+#     # CRF overshoot tends to cap out at 15%, and we add a 10% floor for 25%
+#     # Why? Our prediction is based on the first 5min of video. This segment can be lower entropy (intros, low action)
+#     # and take up a larger portion of the "total" size. Fallback 2-pass encodes at a higher target, so we compensate
+#     let threshold = $tbr * 0.9
 
-    print -e $"CRF prediction encoded at ($predicted_crf), (
-        $predicted_crf - $threshold | into string | str replace - ''
-    ) (
-        if $predicted_crf > $threshold { "over" } else { "under" }
-    ) threshold"
+#     print -e $"CRF prediction encoded at ($predicted_crf), (
+#         $predicted_crf - $threshold | into string | str replace - ''
+#     ) (
+#         if $predicted_crf > $threshold { "over" } else { "under" }
+#     ) threshold"
 
-    if $predicted_crf > $threshold {
-        # Encode it in two passes. And since the video is more complex to meet crf, we bump the $tbr2p value
-        # It's quite a bit higher, but 2-pass has the opposite "problem", in that it often undershoots its target
-        # (despite using it more efficiently). So 1.8mbit might be 1.4mbit, and 2.3mbit might be 2mbit
-        vid 2p av1 $path --preset $preset --tbr $tbr2p --audio-bitrate $audio_bitrate --max $max --tune $tune --rm=$rm
-    } else {
-        vid av1 $path --preset $preset --audio-bitrate $audio_bitrate --max $max --rm=$rm
-    }
-}
+#     if $predicted_crf > $threshold {
+#         # Encode it in two passes. And since the video is more complex to meet crf, we bump the $tbr2p value
+#         # It's quite a bit higher, but 2-pass has the opposite "problem", in that it often undershoots its target
+#         # (despite using it more efficiently). So 1.8mbit might be 1.4mbit, and 2.3mbit might be 2mbit
+#         vid 2p av1 $path --preset $preset --tbr $tbr2p --audio-bitrate $audio_bitrate --max $max --tune $tune --rm=$rm
+#     } else {
+#         vid av1 $path --preset $preset --audio-bitrate $audio_bitrate --max $max --rm=$rm
+#     }
+# }
 
 export def 'vid plot' [
     ...paths: path
@@ -1533,9 +1541,9 @@ export def 'vid av1-folder' [
     } | ignore
 }
 
-export def 'vid av1-folder-2p-crf' [] {
-    glob '**/*.{mp4,webm,mkv,avi,m4v,mpg,wmv,mov,flv,m2ts}' | each { |p| vid 2p av1 crf $p --rm } | ignore
-}
+# export def 'vid av1-folder-2p-crf' [] {
+#     glob '**/*.{mp4,webm,mkv,avi,m4v,mpg,wmv,mov,flv,m2ts}' | each { |p| vid 2p av1 crf $p --rm } | ignore
+# }
 
 export def 'vid get-alpha-streams' [
     path: path
@@ -1694,6 +1702,7 @@ export def 'vid avif' [
     --denoiser: int = 0 # 4 is good and reduces file size but sometimes just fails silently
     --svt # svt will fail for images under 4px, but also for images under 25px (bug?) might also not handle uneven res
     --parallelism: int
+    --log-level: int = 1
 
     --progress
     --rm
@@ -1716,7 +1725,9 @@ export def 'vid avif' [
 
     print $log
 
-    $env.SVT_LOG = 2
+    let scale = if $max != null { vid get-default-scaling $path --max=$max }
+
+    $env.SVT_LOG = $log_level
 
     mut svt = $svt
 
@@ -1732,7 +1743,10 @@ export def 'vid avif' [
     }
 
     if $meta.frames == 1 and $max_frame_count == 1 and ($path | path parse | get extension) != 'gif' {
-        $svt_params ++= ['avif=1']
+        # Avif mode is much more memory efficient (and faster?) on single frames
+        # TPL warns if it's left default on all-intra mode (this is impossible to hide)
+        # It also warns for auto scm detection
+        $svt_params ++= ['avif=1:scm=0']
     }
 
     if $denoiser != null and $denoiser > 1 {
@@ -1761,11 +1775,17 @@ export def 'vid avif' [
             ""
         }
 
+        let scale_filter = if $scale != null {
+            $"scale=($scale.max_width):($scale.max_height),"
+        } else {
+            ""
+        }
+
         let transparency_filters = if $has_transparency {
             let filter = if $alpha_streams != null {
-                $"[0:v:($alpha_streams.0)][0:v:($alpha_streams.1)]alphamerge,format=pix_fmts=yuva444p[main]; [main]($tpad_filter)split[main][alpha]; [main]format=pix_fmts=yuv420p[main]; [alpha]alphaextract[alpha]"
+                $"[0:v:($alpha_streams.0)][0:v:($alpha_streams.1)]alphamerge,($scale_filter)format=pix_fmts=yuva444p[main]; [main]($tpad_filter)split[main][alpha]; [main]format=pix_fmts=yuv420p[main]; [alpha]alphaextract[alpha]"
             } else {
-                $"[0:v]format=pix_fmts=yuva444p[main]; [main]($tpad_filter)split[main][alpha]; [main]format=pix_fmts=yuv420p[main]; [alpha]alphaextract[alpha]"
+                $"[0:v]($scale_filter)format=pix_fmts=yuva444p[main]; [main]($tpad_filter)split[main][alpha]; [main]format=pix_fmts=yuv420p[main]; [alpha]alphaextract[alpha]"
             }
 
             [
@@ -1779,7 +1799,7 @@ export def 'vid avif' [
         } else {
             [
                 -pix_fmt $fmt
-                -vf $"($tpad_filter)format=($fmt)"
+                -vf $"($scale_filter)($tpad_filter)format=($fmt)"
                 # -frames:v (2 + 2)
                 -c:v (if $wassvt { 'libsvtav1' } else { 'libaom-av1' })
             ]
@@ -1809,8 +1829,9 @@ export def 'vid avif' [
             )
 
             break
-        } catch {
-            print $"Error while encoding ($path)"
+        } catch { |e|
+            print $"Error while encoding ($path) ($e)"
+
             if not $wassvt {
                 break
             }
@@ -1837,10 +1858,16 @@ export def 'vid avif-folder' [
     --preset: int = 0
     --threads: int = 8
     --crf: int = 25
-    --norm
+    --norm # Don't delete source images
+    --log-level: int = 1
 ] {
     let rm = not $norm
-    glob '**/*.{png,jpg,jpeg,jfif,gif,webp,heif}' | par-each -t $threads { |p| vid avif $p --preset $preset --crf $crf --rm=$rm --svt } | ignore
+
+    glob '**/*.{png,jpg,jpeg,jfif,gif,webp,heif}' | par-each -t $threads { |p|
+        vid avif $p --preset $preset --crf $crf --rm=$rm --svt --log-level $log_level
+    }
+
+    null
 }
 
 export def 'vid folder-duration' [] {
@@ -2229,7 +2256,7 @@ export def 'vid get-default-filename' [file: path, target?: path, --ext: string 
     return $target
 }
 
-export def "vid min gpu" [
+export def 'vid min gpu' [
     file: path # The path to the video
     bitrate_per_second: filesize = 1.5mb # The target video bitrate. mb = mbits. Nvenc tends to lowball, so make this higher than max
     target?: path # The target filename
@@ -2272,7 +2299,7 @@ export def "vid min gpu" [
     ]
 }
 
-export def "vid min many" [
+export def 'vid min many' [
     paths: list
     --bitrate: filesize = 1.5mb # Bits per second
     --threads(-t): int = 4
@@ -2350,7 +2377,7 @@ export def "vid min many" [
     } | ignore
 }
 
-export def "vid min folder" [
+export def 'vid min folder' [
     --glob: string = "**/*.{mp4,webm,mkv,avi,m4v,mpg,wmv,flv,mov}",
     --bitrate: filesize = 1.5mb # Bits per second
     --delete(-d) # Delete source files if larger than converted file
@@ -2373,7 +2400,7 @@ export def 'vid validate' [
     }
 }
 
-export def "vid validate folder" [
+export def 'vid validate folder' [
     --glob: string = "**/*.{mp4,webm,mkv,avi,m4v,mpg,wmv,flv,mov}"
     --threads(-t): int = 1
 ] {
@@ -2416,122 +2443,4 @@ def parse-time [input: string] {
     let millis = ($mf.1 | fill -w 3 -c 0 -a l | into int)
 
     $hours * 3600 + $minutes * 60 + $seconds + $millis / 1000
-}
-
-# Cuts a video from `start` to `end`, in nvenc p7 h265, with optional size target
-export def vcut [
-    path: string
-    start: string = "0"
-    end: string = "1000000"
-    size?: filesize
-    result?: string
-    --audio: filesize
-    --crf: int = 30 # Lower this for better quality, 21 is much better, much bigger; not useful for target sizes
-    --max: int = 1080 # Lower this if nvenc really can't make it fit in `size`
-    --rawtime # Use -to timestamp instead of calculating -t from parsing $end - $start
-    --codec: string = hevc_nvenc
-] {
-    let outpath = $result | default (path interject $path cut --count --ext mp4)
-
-    let end = if $end == "0" {
-        "1000000"
-    } else {
-        $end
-    }
-
-    let meta = vid get-meta $path
-    let total_duration = $meta.duration | into int | $in / 1000000000
-
-    # We gotta parse them because we can't rely on vid get-meta for the duration after cut
-    # And doing a temp --copy cut is meh, dirty?
-    let start_time = parse-time $start
-    let end_time = [(parse-time $end), $total_duration] | math min
-    let duration = $end_time - $start_time
-
-    mut audio_bitrate = ($audio | default 96kb) | into int
-
-    mut bitrate_flags = []
-    if $size != null {
-        let filesize_bits = ($size | into int) * 8 # Total bits
-        let total_bitrate = ($filesize_bits / $duration) | into int
-
-        # Audio can take a hit on the excellent opus codec
-        $audio_bitrate = if $audio != null {
-            $audio | into int
-        } else if $total_bitrate > 96kb / 1b * 10 {
-            $audio_bitrate
-        } else if $total_bitrate > 96kb / 1b * 5 {
-            print $"bumped audio down to 64k \(max (96kb * 10), at ($total_bitrate * 1b))"
-            64kb | into int
-        } else {
-            print $"bumped audio down to 32k \(max (96kb * 5), at ($total_bitrate * 1b))"
-            32kb | into int
-        }
-
-        let video_bitrate = $total_bitrate - $audio_bitrate
-
-        const target_fallibility = 0.95
-        const max_fallibility = 0.97
-
-        $bitrate_flags ++= [-b:v ($video_bitrate * $target_fallibility)]
-        $bitrate_flags ++= [-maxrate ($video_bitrate * $max_fallibility)]
-        # $bitrate_flags ++= [-bufsize ($video_bitrate * 2)]
-    }
-
-    let scale = vid get-default-scaling $path --max=$max
-
-    let audio_flags = if $audio_bitrate == 0b {
-        ['-an']
-    } else {
-        [
-            -c:a libopus
-            -b:a $audio_bitrate
-        ]
-    }
-
-    print $"start: ($start) end: ($end) duration: ($duration)"
-
-    (ffmpeg
-        -v warning
-        -stats
-        # Conditionally including -ss helps with hard-to-seek video formats (like avi)
-        ...(if $start != "0" { [-ss $start] } else { [] })
-        # -to inserted before video input if raw, -t inserted after if not
-        ...(if $rawtime { [-to $end] } else { [] })
-        -i $path
-        ...(if not $rawtime { [-t $duration] } else { [] })
-        -c:v $codec
-        -preset p7
-        -rc vbr
-        ...($bitrate_flags)
-        # -bufsize 1000k
-        -cq $crf
-        -profile:v main # Discord mobile & desktop sometimes fail on main10, on different videos. TODO: investigate
-        -pix_fmt yuv420p # Force 8-bit profile even for 10 bit input streams
-        -rc-lookahead 32
-        -spatial-aq 1
-        -aq-strength 15
-        -temporal-aq 1
-        -bf 4
-        -g 300
-        -vf $"scale=($scale.max_width):($scale.max_height)"
-        ...($audio_flags)
-        $outpath
-    )
-
-    # (ffmpeg
-    #     -v warning
-    #     -stats
-    #     -ss $start
-    #     -to $end
-    #     -i $path
-    #     ...($bitrate_flags)
-    #     -c:v libx265
-    #     -preset medium
-    #     -crf $crf
-    #     -x265-params "rc-lookahead=32:aq-mode=1:aq-strength=1:bframes=4:keyint=300"
-    #     -vf $"scale=($scale.max_width):($scale.max_height)"
-    #     ...($audio_flags)
-    #     $outpath
-    # )
 }
