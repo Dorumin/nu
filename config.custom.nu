@@ -21,7 +21,7 @@ $env.PROMPT_MULTILINE_INDICATOR = { || "" }
 $env.PROMPT_COMMAND_RIGHT = { || "" }
 
 $env.config.show_banner = false
-$env.config.rm.always_trash = true
+$env.config.rm.always_trash = $nu.os-info.name == 'windows'
 
 $env.config.history.file_format = 'sqlite'
 
