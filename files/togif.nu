@@ -13,13 +13,29 @@ def update-screencap [
     time: string,
     preview_path: string,
     --crop: string
+    --subtitles
 ] {
+    mut filters = []
+
+    if $crop != null {
+        $filters ++= [$"crop=($crop)"]
+    }
+
+    if $subtitles {
+        let escaped_path = $path | str replace -a '\' '/' | str replace ':' '\:'
+
+        $filters ++= [$"subtitles='($escaped_path)':si=1"]
+    }
+
     # NOTE: for -ss, this will include the captured frame. For -to, it will **not**
-    let vfargs = if $crop != null {
-        [-vf $"crop=($crop)"]
+    let vfargs = if ($filters | is-not-empty) {
+        [-vf ($filters | str join ",")]
     } else {
         []
     }
+
+    # print $vfargs $subtitles $filters
+
     ffmpeg -ss $time -i $path -frames:v 1 -update 1 ...$vfargs -y $preview_path o+e>| ignore
 }
 
@@ -52,7 +68,12 @@ def main [ file: string ] {
     }
 
     if ($paths | length) == 1 {
-        update-screencap $paths.0.value ($defaults.start? | default 0 | into string) $preview_path --crop $defaults.crop?
+        (update-screencap
+            $paths.0.value
+            ($defaults.start? | default 0 | into string)
+            $preview_path
+            --crop $defaults.crop?
+        )
     }
 
     let metas = $paths.value | par-each { |path| vid get-meta $path }

@@ -42,7 +42,7 @@ export def 'history' [
             | (if $last != null { last $last } else { $in })
     }
 
-    if $noprint {
+    if $noprint or $find == null {
         $rows
     } else {
         $rows | table --index false --theme light

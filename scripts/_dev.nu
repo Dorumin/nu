@@ -83,7 +83,7 @@ export def 'make wrapper' [
     $"(if $exported { 'export ' })def ($command)-wrapper [\n($argslist)] {\n    ($command) # TODO: Pass through flags\n}"
 }
 
-def 'version update' [] {
+export def 'version update' [] {
     let root = mktemp --tmpdir --directory
     let moved_exe = mktemp --tmpdir --dry XXXXXX.oldnu.exe
 
@@ -100,10 +100,10 @@ def 'version update' [] {
     print $"moved new nu binary to ($nu.current-exe)"
 }
 
-def 'version clean' [] {
+export def 'version clean' [] {
     cd $nu.temp-dir
 
-    rm ...(glob *.oldnu.exe)
+    rm ...(glob *.oldnu.exe) --verbose
 }
 
 export def diff-data-file [

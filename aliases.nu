@@ -18,10 +18,13 @@ alias pn = pnpm
 alias ytdl = yt-dlp.exe --js-runtimes node -o ($env.USERPROFILE + '\Downloads\%(title)s [%(id)s].%(ext)s')
 alias ytdl-mp3 = yt-dlp.exe --js-runtimes node --extract-audio --audio-format mp3 -o ($env.USERPROFILE + '\Downloads\%(title)s [%(id)s].%(ext)s')
 alias ytdlc = yt-dlp.exe --js-runtimes node -o ($env.PWD | path join '%(title)s [%(id)s].%(ext)s')
-alias yt = ytdl (bp)
+alias yt = ytdl --write-sub --write-auto-sub --sub-lang "en" --embed-subs (bp)
 
 # Brain shortcuts
 alias cwd = pwd
+
+# Paste path
+alias bpp = do { null; ^bp | str replace -ar '^"|"$' '' }
 
 # Restart nushell without 17 nested layers
 alias nux = exec nu

@@ -1107,7 +1107,7 @@ export def 'vid av1 crf' [
         mut last_frames = 0
         mut last_bitrate = 0
         # mut last_time = date now
-        mut ema_bitrate = 0
+        mut ema_bitrate = 0.0
         # mut ema_fps = 0
 
         let start_time = date now
@@ -1191,7 +1191,7 @@ export def 'vid av1 crf' [
                     $ema_bitrate = $ema_bitrate + $alpha * ($chunk_bitrate - $ema_bitrate)
 
                     $last_frames = $new_frames
-                    $last_bitrate = $new_bitrate
+                    $last_bitrate = $new_bitrate | into int
                     # $last_time = $new_time
 
                     # Parsed size is always in metric megabytes
@@ -2443,4 +2443,111 @@ def parse-time [input: string] {
     let millis = ($mf.1 | fill -w 3 -c 0 -a l | into int)
 
     $hours * 3600 + $minutes * 60 + $seconds + $millis / 1000
+}
+
+# Build a partial atlas from pre-placed images.
+# `placed` is a list of { path, x, y, width, height } with (0,0)-based positions.
+# When --canvas-width/--canvas-height are given, the output canvas uses those
+# dimensions (for the final combine step); otherwise it sizes to the bounding box.
+export def 'vid build-atlas-chunk' [
+    placed: list
+    --output(-o): path = "chunk.png"
+    --canvas-width: int
+    --canvas-height: int
+] {
+    let file_count = ($placed | length)
+    if $file_count == 0 { error make { msg: "No placements in chunk" } }
+
+    let atlas_w = ($canvas_width | default ($placed | each { |r| $r.x + $r.width } | math max))
+    let atlas_h = ($canvas_height | default ($placed | each { |r| $r.y + $r.height } | math max))
+
+    let overlay_lines = $placed | enumerate | reduce -f [
+        $"nullsrc=size=($atlas_w)x($atlas_h),format=rgba[base];"
+    ] { |pair, acc|
+        let i = $pair.index
+        let r = $pair.item
+
+        if $i == 0 {
+            $acc ++ [
+                $"[base][($i):v]overlay=x=($r.x):y=($r.y)[lv($i)];"
+            ]
+        } else {
+            $acc ++ [
+                $"[lv($i - 1)][($i):v]overlay=x=($r.x):y=($r.y)[lv($i)];"
+            ]
+        }
+    }
+
+    let script = ($overlay_lines) | str join "\n"
+    let out_label = $"[lv($file_count - 1)]"
+
+    let script_file = (mktemp --suffix .atlas)
+    $script | save -f $script_file
+
+    let paths = $placed | get path
+
+    print ($paths | length)
+    ^ffmpeg -v warning ...($paths | each { |p| ["-i", $p] } | flatten) -/filter_complex $script_file -map $out_label -update 1 -frames:v 1 -compression_level 1 -y $output
+
+    rm $script_file
+}
+
+# Build a sprite atlas from image paths.
+# Splits large sets into chunks of --chunk-size overlays to keep ffmpeg memory
+# use manageable, then assembles the partial atlases into the final image.
+# Returns the placements table with paths attached.
+export def 'vid build-atlas' [
+    ...paths: path
+    --output(-o): path = "atlas.png"
+    --chunk-size: int = 50
+    --packer: string = "rects"
+] {
+    let file_count = ($paths | length)
+    if $file_count == 0 {
+        error make { msg: "No input files provided" }
+    }
+
+    let metas = $paths | each { |p| vid get-meta $p | insert path $p }
+    let sorted = $metas | sort-by height --reverse
+    let sorted_paths = $sorted | get path
+    let placements = if $packer == "rects2" { $metas | pack rects2 } else { $metas | pack rects }
+
+    let atlas_w = ($placements | each { |r| $r.x + $r.width } | math max)
+    let atlas_h = ($placements | each { |r| $r.y + $r.height } | math max)
+
+    let placed = $placements | enumerate | each { |pair|
+        $pair.item | insert path ($sorted_paths | get $pair.index)
+    }
+
+    let chunks = ($placed | chunks $chunk_size)
+
+    let partials = $chunks | enumerate | each { |chunk_pair|
+        let items = $chunk_pair.item
+        let min_x = ($items | each { |r| $r.x } | math min)
+        let min_y = ($items | each { |r| $r.y } | math min)
+        let chunk_w = ($items | each { |r| $r.x + $r.width } | math max) - $min_x
+        let chunk_h = ($items | each { |r| $r.y + $r.height } | math max) - $min_y
+
+        let offset = $items | each { |r|
+            { path: $r.path, x: ($r.x - $min_x), y: ($r.y - $min_y), width: $r.width, height: $r.height }
+        }
+
+        let partial_path = (mktemp -t --suffix .png)
+
+        vid build-atlas-chunk $offset --output $partial_path
+
+        { path: $partial_path, x: $min_x, y: $min_y, width: $chunk_w, height: $chunk_h }
+    }
+
+    let combine_placed = $partials | each { |r|
+        { path: $r.path, x: $r.x, y: $r.y, width: $r.width, height: $r.height }
+    }
+
+    vid build-atlas-chunk $combine_placed --canvas-width $atlas_w --canvas-height $atlas_h --output $output
+
+    # $partials | each { |p| rm $p.path } | ignore
+
+    $placements | enumerate | each { |pair|
+        $pair.item | insert path ($sorted_paths | get $pair.index)
+    }
 }

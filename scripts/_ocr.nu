@@ -133,6 +133,10 @@ export def 'ocr search' [
             let prefixed = $"($pair.index | fill -a r -w 4 -c 0).($pair.item.path | path basename)"
             let target = $dir | path join $prefixed
 
+            if not ($expanded | path exists) {
+                return
+            }
+
             ml $target $expanded
 
             $target

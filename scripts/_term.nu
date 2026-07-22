@@ -1,4 +1,5 @@
 use _str.nu *
+use _combinators.nu *
 
 # Clear terminal but without losing scrollback
 export def 'term clear-spaced' [] {
@@ -16,12 +17,14 @@ export def 'term move-cursor' [
 
 # Get the current position of the cursor
 export def 'term get-cursor-pos' [
-    --restore = true
+    --restore
 ]: [nothing -> record<x: int, y: int>] {
-    print "\e[6n"
+    print -en "\e[6n"
 
     let res = input -s -u R
-        | parse -r '^\[(?<y>\d+);(?<x>\d+)' # Input does not include delimiting "R"
+        # | each { |input| $"($input)\n" | save -a test.txt; $input }
+        | parse -r '^\[?(?<y>\d+);(?<x>\d+)' # Input does not include delimiting "R"
+        # | each { |input| print $input; $input }
         | first
         | update x { ($in | into int) - 1 }
         | update y { ($in | into int) - 1 }
