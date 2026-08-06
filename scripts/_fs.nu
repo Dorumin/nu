@@ -1,10 +1,13 @@
+use std
 use _combinators.nu *
+use _sqlite.nu *
+
 
 export def greplink [
-	files: string # Glob pattern for files to search in
-	regex: string # The regex to test the files' content against
-	target: string # The target folder to copy files that match into
-	--delete(-d) # Delete the folder before copying
+    files: string # Glob pattern for files to search in
+    regex: string # The regex to test the files' content against
+    target: string # The target folder to copy files that match into
+    --delete(-d) # Delete the folder before copying
     --threads(-t): int = 16 # The level of parallelism
     --hard
 ] {
@@ -42,7 +45,7 @@ export def greplink [
     #             $link_path = $ctx.target | path join $base
     #         }
 
-	# 		print -e $"Linking: (ansi yellow)($base)(ansi reset) \((ansi green)($size)(ansi reset)\)"
+    # 		print -e $"Linking: (ansi yellow)($base)(ansi reset) \((ansi green)($size)(ansi reset)\)"
 
     #         mklink $link_path $path | ignore
     #         touch $link_path -m -s -r $path
@@ -64,7 +67,7 @@ export def greplink [
                 $link_path = $target | path join $base
             }
 
-			print -e $"Linking: (ansi yellow)($base)(ansi reset) \((ansi green)($size)(ansi reset)\)"
+            print -e $"Linking: (ansi yellow)($base)(ansi reset) \((ansi green)($size)(ansi reset)\)"
 
             try {
                 ml --hard=$hard $link_path $path | ignore
@@ -383,39 +386,39 @@ def is-tag-worthwhile [ tag, --depth: int = 0 ]: [any -> bool] {
 
 # Normalized explorer command
 export def explorer [
-	path: string = "." # Path of folder to open in file explorer
+    path: string = "." # Path of folder to open in file explorer
 ] {
-	if ($path | path exists) {
-		let path_type = ($path | path expand | path type)
+    if ($path | path exists) {
+        let path_type = ($path | path expand | path type)
 
-		if $path_type == 'dir' {
-			cd $path; explorer.exe .
-		} else {
-			echo $"(ansi red)The path you provided is not a directory."
-			echo $"(ansi red)You passed: ($path)"
-			echo $"(ansi red)It is: ($path_type)"
-		}
-	} else {
-		# Sad path :(
-		# Find first path segment that does not exist
-		# let expanded_split = ($path| path split | reduce -f [] { |seg, parts|
-		# 	$parts | append [($parts | last | append $seg)]
-		# })
-		# let expanded_paths = ($expanded_split | each { |parts| $parts | path join })
-		# let paths_that_exist = ($expanded_paths | each while { |path|
-		# 	if ($path | path exists) {
-		# 		$path
-		# 	} else {
-		# 		null
-		# 	}
-		# })
-		# let the_path_after_the_last_one_that_exists = ($expanded_paths | get ($paths_that_exist | length))
+        if $path_type == 'dir' {
+            cd $path; explorer.exe .
+        } else {
+            echo $"(ansi red)The path you provided is not a directory."
+            echo $"(ansi red)You passed: ($path)"
+            echo $"(ansi red)It is: ($path_type)"
+        }
+    } else {
+        # Sad path :(
+        # Find first path segment that does not exist
+        # let expanded_split = ($path| path split | reduce -f [] { |seg, parts|
+        # 	$parts | append [($parts | last | append $seg)]
+        # })
+        # let expanded_paths = ($expanded_split | each { |parts| $parts | path join })
+        # let paths_that_exist = ($expanded_paths | each while { |path|
+        # 	if ($path | path exists) {
+        # 		$path
+        # 	} else {
+        # 		null
+        # 	}
+        # })
+        # let the_path_after_the_last_one_that_exists = ($expanded_paths | get ($paths_that_exist | length))
 
-		# echo $"(ansi red)The path you provided does not exist."
-		# echo $"(ansi red)You passed: ($path)"
-		# echo $"(ansi red)First directory that doesn't exist: ($the_path_after_the_last_one_that_exists)"
+        # echo $"(ansi red)The path you provided does not exist."
+        # echo $"(ansi red)You passed: ($path)"
+        # echo $"(ansi red)First directory that doesn't exist: ($the_path_after_the_last_one_that_exists)"
         echo 'noexist'
-	}
+    }
 }
 
 export def 'list-hashes' [] {
@@ -510,4 +513,160 @@ export def distribute-hashed-files [
 
         null
     }
+}
+
+alias create_diff_table = sqlite init [
+    "
+    CREATE TABLE IF NOT EXISTS file (
+        snapshot_id     INTEGER NOT NULL,
+
+        -- relative path from scan root
+        path            TEXT NOT NULL,
+        size            INTEGER NOT NULL,
+
+        -- filled in on size collisions
+        full_hash       BLOB,
+
+        PRIMARY KEY(snapshot_id, path)
+    )
+    "
+    "
+    -- Perhaps a covering index can be used more effectively, replacing the PRIMARY KEY?
+    -- then we won't be safe against path collisions
+    CREATE INDEX IF NOT EXISTS idx_file_hashes ON file(snapshot_id, size, full_hash)
+    "
+]
+
+alias insert_diff_partial_row = query db "
+    INSERT INTO file (snapshot_id, path, size) VALUES (?, ?, ?)
+"
+
+alias select_needed_hashing = query db "
+SELECT f.snapshot_id, f.path, f.size
+FROM file AS f
+WHERE f.full_hash IS NULL
+AND f.snapshot_id IN (?, ?)
+AND EXISTS (
+    SELECT 1
+    FROM file AS g
+    WHERE g.snapshot_id <> f.snapshot_id
+        AND g.size = f.size
+)
+"
+
+alias update_full_hash = query db "
+    UPDATE file SET full_hash = ? WHERE snapshot_id = ? AND path = ?
+"
+
+alias select_equivalences = query db "
+SELECT
+    full_hash,
+    snapshot_id,
+    path
+FROM file
+WHERE snapshot_id IN (?, ?)
+--  AND full_hash IS NOT NULL
+ORDER BY full_hash, snapshot_id, path
+"
+
+export def scan-folder-diff [
+    root: path
+] {
+    cd $root;
+
+    let snapshot_id = random int
+    let files = ls **/*
+        | where type == file
+        | select name size
+        | update name { path split | str join '/' }
+        | update size { $in / 1b | into int }
+
+    stor open | create_diff_table
+
+    $files | each { |row|
+        stor open | insert_diff_partial_row -p [$snapshot_id $row.name $row.size]
+    }
+
+    $snapshot_id
+}
+
+export def diff-folders [
+    roota: path
+    rootb: path
+] {
+    let snap_a = scan-folder-diff $roota
+    let snap_b = scan-folder-diff $rootb
+    let root_map = { $snap_a: $roota, $snap_b: $rootb }
+
+    stor open | select_needed_hashing -p [$snap_a $snap_b] | each { |row|
+        let root = $root_map | get ($row.snapshot_id | into string)
+
+        # print $"reading ($row.path) at ($root) due to size collision: ($row.size)"
+
+        cd $root
+        let hash = open $row.path --raw | hash sha256
+
+        stor open | update_full_hash -p [$hash, $row.snapshot_id, $row.path]
+    }
+
+    let changes = stor open | select_equivalences -p [$snap_a $snap_b]
+        # Have to use a closure due to a bug with cell path arguments filtering out nulls
+        | group-by { get full_hash } --to-table --prune
+        | rename full_hash items
+        | each { |dupes|
+            let is_trivially_unique = $dupes.full_hash | is-empty
+            let grouped = $dupes.items | group-by path --to-table | get items
+            let grouped = if $is_trivially_unique {
+                # Ungroup all
+                $grouped | flatten | each { [$in] }
+            } else {
+                $grouped
+            }
+
+            if ($dupes.items | length) == 2 and $dupes.items.0.path != $dupes.items.1.path and not $is_trivially_unique {
+                return {
+                    type: 'move',
+                    from_path: ($dupes.items | where snapshot_id == $snap_a | get 0.path),
+                    to_path: ($dupes.items | where snapshot_id == $snap_b | get 0.path),
+                }
+            }
+
+            $grouped | each { |group|
+                if ($group | length) == 2 {
+                    std assert not $is_trivially_unique
+
+                    return {
+                        type: 'keep',
+                        from_path: $group.0.path
+                    }
+                }
+
+                if $group.0.snapshot_id == $snap_a {
+                    return {
+                        type: 'delete',
+                        from_path: $group.0.path
+                    }
+                }
+
+                if $group.0.snapshot_id == $snap_b {
+                    return {
+                        type: 'create',
+                        to_path: $group.0.path
+                    }
+                }
+            }
+        } | flatten | select type from_path? to_path? | each { compact }
+
+    let edit_paths = $changes | group-by { |v| $v.from_path? | default $v.to_path? } | values | each { |rows|
+        if ($rows | length) == 2 and ($rows | where type == 'delete' | length) == 1 and ($rows | where type == 'create' | length) == 1 {
+            $rows | where type == 'create' | get 0.to_path
+        }
+    }
+
+    $changes | where { |row| ($row.from_path? | default $row.to_path?) not-in $edit_paths } | append ($edit_paths | each { |path|
+        {
+            type: 'edit',
+            from_path: $path
+        }
+    })
 }

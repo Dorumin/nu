@@ -17,26 +17,43 @@ def update-screencap [
 ] {
     mut filters = []
 
-    if $crop != null {
-        $filters ++= [$"crop=($crop)"]
+    let crop_filter = if $crop != null {
+        $"crop=($crop)"
+    } else {
+        ""
     }
 
-    if $subtitles {
-        let escaped_path = $path | str replace -a '\' '/' | str replace ':' '\:'
-
-        $filters ++= [$"subtitles='($escaped_path)':si=1"]
-    }
-
-    # NOTE: for -ss, this will include the captured frame. For -to, it will **not**
-    let vfargs = if ($filters | is-not-empty) {
-        [-vf ($filters | str join ",")]
+    let fc_args = if $subtitles {
+        [
+            -filter_complex
+            '[0:v][0:s]overlay[v]'
+            -map
+            '[v]'
+        ]
     } else {
         []
     }
 
-    # print $vfargs $subtitles $filters
+    # if $crop != null {
+    #     $filters ++= [$"crop=($crop)"]
+    # }
 
-    ffmpeg -ss $time -i $path -frames:v 1 -update 1 ...$vfargs -y $preview_path o+e>| ignore
+    # if $subtitles {
+    #     let escaped_path = $path | str replace -a '\' '/' | str replace ':' '\:'
+
+    #     $filters ++= [$"subtitles='($escaped_path)':si=1"]
+    # }
+
+    # # NOTE: for -ss, this will include the captured frame. For -to, it will **not** (exclusive range end ts)
+    # let vfargs = if ($filters | is-not-empty) {
+    #     [-vf ($filters | str join ",")]
+    # } else {
+    #     []
+    # }
+
+    print $fc_args
+
+    ffmpeg -ss $time -i $path -frames:v 1 -update 1 ...$fc_args -y $preview_path o+e>| ignore
 }
 
 def main [ file: string ] {

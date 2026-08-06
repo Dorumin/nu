@@ -86,3 +86,7 @@ export def 'term clear-line' [] {
 export def 'term clear-rest-of-screen' [] {
     print -n "\e[J"
 }
+
+export def 'term title' [ title: string ] {
+    print -n $"\e]2;($title)e\a"
+}

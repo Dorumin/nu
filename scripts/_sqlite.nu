@@ -1,3 +1,5 @@
+use std
+
 # Insert a table of rows into a sqlite handle efficiently
 export def 'sqlite batchsert' [
     table_name: string,
@@ -85,21 +87,43 @@ export def 'sqlite batched' [
 }
 
 export def 'sqlite init' [
-    path: path
+    path: oneof<list, path>
     init?: oneof<list, string>
 ] {
-    let exists = $path | path exists
-
-    if not $exists {
-        { x: 'y' } | into sqlite $path -t _init_sentinel
+    let maybe_handle = $in
+    let input_is_db = ($maybe_handle | describe -d | get detailed_type?) == 'SQLiteDatabase'
+    let maybe_handle = if $input_is_db {
+        $maybe_handle
+    } else {
+        null
     }
 
-    if $init != null {
-        if ($init | describe -d | get type) == "list" {
-            let handle = open $path
-            $init | each { |sql| $handle | query db $sql }
-        } else {
-            open $path | query db $init
+    let inits = if $input_is_db {
+        std assert equal (type-of $path) list
+        std assert equal $init null
+
+        # $path must hold a list of statements now
+        $path
+    } else {
+        $init
+    }
+
+    if not $input_is_db {
+        let exists = $path | path exists
+
+        if not $exists {
+            { x: 'y' } | into sqlite $path -t _init_sentinel
         }
     }
+
+    if $inits != null {
+        if (type-is $inits "list") {
+            let handle = $maybe_handle | default { open $path }
+            $inits | each { |sql| $handle | query db $sql }
+        } else {
+            open $path | query db $inits
+        }
+    }
+
+    null
 }

@@ -10,9 +10,9 @@ let redirect_pwds = [
 ]
 
 let next_pwd = if $normal_pwd in $redirect_pwds {
-	'~/Code'
+    '~/Code'
 } else {
-	'.'
+    '.'
 }
 
 cd $next_pwd

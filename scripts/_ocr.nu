@@ -1,5 +1,6 @@
-use _fs.nu
-use _dev.nu
+use _fs.nu *
+use _dev.nu *
+use _term.nu *
 
 def create-db-if-missing [] {
     let exists = '!ocr.db' | path exists
@@ -21,7 +22,42 @@ const INSERT_OCR_STMT = "
     VALUES (:path, :text, :modified)
 "
 
-export def 'ocr scan' [] {
+export def 'ocr umi' [ path: string, --retries: int = 4 ] {
+    # Local patch
+    $env.UMI_QUIET = 1
+
+    let expanded = $path | path expand
+    let output_path = mktemp --dry
+
+    for i in 0..<$retries {
+        Umi-OCR --output $output_path --path $expanded
+
+        if not ($output_path | path exists) {
+            sleep 0.1sec
+            continue
+        }
+
+        let text = open $output_path
+
+        rm $output_path
+
+        return $text
+    }
+
+    error make {
+        msg: 'Umi-OCR could not extract any text'
+    }
+}
+
+export def 'ocr ocrs' [ path: string ] {
+    ocrs $path
+}
+
+export def 'ocr scan' [
+    --threads: int = 4
+    --engine: string = "umi"
+    --nopreviews
+] {
     create-db-if-missing
 
     open !ocr.db | query db "
@@ -38,13 +74,23 @@ export def 'ocr scan' [] {
     # (up to ~100% faster at ~30000 images)
     mut start_dataset = $handle | query db "SELECT path, last_checked FROM ocr_results_v0" | transpose -rd
 
+    let ocr_fn = if $engine == "umi" {
+        { |p| ocr umi $p }
+    } else {
+        { |p| ocr ocrs $p }
+    }
+
     if ($start_dataset | describe -d | get type) == 'list' {
         $start_dataset = {}
     }
 
     let start_dataset = $start_dataset
 
-    glob '**/*.{jpg,jpeg,png}' | path relative-to $env.PWD | enumerate | par-each -t 4 { |item|
+    if not $nopreviews {
+        clear -k;
+    }
+
+    glob '**/*.{jpg,jpeg,png}' | path relative-to $env.PWD | enumerate | par-each -t $threads { |item|
         let path = $item.item
         let index = $item.index
 
@@ -54,18 +100,32 @@ export def 'ocr scan' [] {
         let existing = $start_dataset | get -o $path
         let clear_bar = '' | fill -w (term size | get columns) -c ' '
 
-        if $existing == null or ($existing | into datetime) < $meta.modified {
-            let ocr_result = ocrs $path | complete
+        # TODO: webp/avif to temp jpeg
+        let image_path = $path
 
-            if $ocr_result.exit_code != 0 {
-                print -e $ocr_result.stderr
+        if $existing == null or ($existing | into datetime) < $meta.modified {
+            let ocr_result = try {
+                do $ocr_fn $image_path
+            } catch { |e|
+                print -e $"\nerror while ocring ($path) ($e)\n"
                 return
             }
 
-            # print $ocr_result.stdout
-            let text = $ocr_result.stdout | str trim
+            let text = $ocr_result | str trim -r
             let char_count = $text | str length
-            print $"\r($clear_bar)\r($path) \(($index)) \(($char_count) chars)" -n
+
+            if $nopreviews {
+                print $"\r($clear_bar)\r($path) \(($index)) \(($char_count) chars)" -n
+            } else {
+                clear
+
+                term print-at 0 1 $"($path) \(($index)) \(($char_count) chars)\e[K\n\n"
+
+                let sz = term size
+                let head = $ocr_result | str replace -ar $".{($sz.columns)}" '$0\n' | lines | take ($sz.rows - 6) | str join "\n"
+
+                print $head
+            }
 
             $handle | query db $INSERT_OCR_STMT -p {
                 path: $path,

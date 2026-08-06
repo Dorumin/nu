@@ -1700,9 +1700,13 @@ export def 'vid avif' [
     --tune: int = 1 # 0: vq, 1: psnr, 2: ssim
     --fmt = "yuv420p" # Some decoders (like C# AvifNative for paint.net or ImageGlass) fail for BIG images in 10bit
     --denoiser: int = 0 # 4 is good and reduces file size but sometimes just fails silently
-    --svt # svt will fail for images under 4px, but also for images under 25px (bug?) might also not handle uneven res
+    --nosvt # svt will fail for images under 4px, but also for images under 25px (bug?) might also not handle uneven res
     --parallelism: int
     --log-level: int = 1
+
+    # --colorrange: string # pc, tv
+
+    --no-gif-denoise # Disable custom nlmeans denoiser on gifs to reduce dithering artifacts and improve compression
 
     --progress
     --rm
@@ -1721,7 +1725,7 @@ export def 'vid avif' [
     let stat = ls -D $path | first
     let start_time = date now
 
-    mut log = $"Encoding (ansiwrap default_reverse ($path | path basename)): initial size (ansiwrap light_blue ($stat.size | into string))"
+    mut log = $"Encoding (ansiwrap default_reverse ($path | path basename)): initial size (ansiwrap light_blue ($stat.size | into string)), (ansiwrap light_green ($meta.width))x(ansiwrap light_green ($meta.height))"
 
     print $log
 
@@ -1729,7 +1733,7 @@ export def 'vid avif' [
 
     $env.SVT_LOG = $log_level
 
-    mut svt = $svt
+    mut svt = not $nosvt
 
     let has_transparency = vid has-transparency $path
 
@@ -1737,10 +1741,12 @@ export def 'vid avif' [
     mut aom_params = []
 
     let max_frame_count = try {
-        $streams | get props.nb_frames? | each { try { into int } } | math max
+        $streams | get props.nb_frames? | each { try { into int } } | collect | math max
     } catch {
         1 # Idk whether to default to 2 or 1, erring on still or caution
     }
+
+    let pixel_count = $meta.width * $meta.height
 
     if $meta.frames == 1 and $max_frame_count == 1 and ($path | path parse | get extension) != 'gif' {
         # Avif mode is much more memory efficient (and faster?) on single frames
@@ -1763,9 +1769,19 @@ export def 'vid avif' [
         $svt = false
 
         let alpha_streams = vid get-alpha-streams $path
-        # if $alpha_streams != null {
-        #     let $filter = $"[0:v:($alpha_streams.0)][0:v:($alpha_streams.1)]alphamerge"
-        # }
+
+        # Just to hide the "deprecated pixel format used" warning for jpegs, only way I found to reliably do it
+        # Hopefully it doesn't alter colors on weird images. It already hardcodes chroma sample location
+        # to topleft because "center" is unsupported at the av1 bitstream level (and avif)
+        let pixfmt_filter = if ($path | path parse | get extension) in ['jpg', 'jpeg'] {
+            # Pad odd dimensions, then zscale the color range because it's the only way I found
+            # to ACTUALLY hide the "deprecated pixel format used, make sure you did set range correctly" warning,
+            # then format to yuv444p to be able to scale it back to possibly odd dimensions
+            # and then it'll later be turned to yuv420p
+            $"pad=ceil\(iw/2)*2:ceil\(ih/2)*2,zscale=rangein=input:range=full:c=topleft,format=yuv444p,crop=($meta.width):($meta.height):0:0,"
+        } else {
+            ''
+        }
 
         # Tpad pads the end with a single short frame for gifs with a lasting last frame
         # In practice this just inserts one frame at most and fixes timing issues
@@ -1781,11 +1797,25 @@ export def 'vid avif' [
             ""
         }
 
+        let denoise_filter = if not $no_gif_denoise and ($path | path parse | get extension) == 'gif' {
+            # Sigma 4 is good at reducing dithering while keeping edges, color "accuracy" (for gif standards) and detail
+            # p/pc/r/rc options can be reduced for faster speed, but avif gif encoding is already a bit cpu heavy
+            # defaults: p=7,pc=7,r=15,rc=15
+            # fast: p=7,pc=7,r=9,rc=9
+            match $pixel_count {
+                0..<200_000 => "nlmeans=s=4.0:p=7:pc=7:r=15:rc=15,",
+                200_000..<800_000 => "nlmeans=s=4.0:p=7:pc=7:r=11:rc=11,"
+                _ => "nlmeans=s=4.0:p=7:pc=7:r=9:rc=9,"
+            }
+        } else {
+            ""
+        }
+
         let transparency_filters = if $has_transparency {
             let filter = if $alpha_streams != null {
-                $"[0:v:($alpha_streams.0)][0:v:($alpha_streams.1)]alphamerge,($scale_filter)format=pix_fmts=yuva444p[main]; [main]($tpad_filter)split[main][alpha]; [main]format=pix_fmts=yuv420p[main]; [alpha]alphaextract[alpha]"
+                $"[0:v:($alpha_streams.0)][0:v:($alpha_streams.1)]alphamerge,($pixfmt_filter)($denoise_filter)($scale_filter)format=pix_fmts=yuva444p[main]; [main]($tpad_filter)split[main][alpha]; [main]format=pix_fmts=yuv420p[main]; [alpha]alphaextract[alpha]"
             } else {
-                $"[0:v]($scale_filter)format=pix_fmts=yuva444p[main]; [main]($tpad_filter)split[main][alpha]; [main]format=pix_fmts=yuv420p[main]; [alpha]alphaextract[alpha]"
+                $"[0:v]($scale_filter)format=pix_fmts=yuva444p[main]; [main]($pixfmt_filter)($denoise_filter)($tpad_filter)split[main][alpha]; [main]format=pix_fmts=yuv420p[main]; [alpha]alphaextract[alpha]"
             }
 
             [
@@ -1799,7 +1829,7 @@ export def 'vid avif' [
         } else {
             [
                 -pix_fmt $fmt
-                -vf $"($scale_filter)($tpad_filter)format=($fmt)"
+                -vf $"($pixfmt_filter)($denoise_filter)($scale_filter)($tpad_filter)format=($fmt)"
                 # -frames:v (2 + 2)
                 -c:v (if $wassvt { 'libsvtav1' } else { 'libaom-av1' })
             ]
@@ -1823,6 +1853,7 @@ export def 'vid avif' [
                 } else {
                     [-aom-params ($aom_params | str join :)]
                 })
+                # ...(if $colorrange != null { [ -colorspace bt709 -color_primaries bt709 -color_range $colorrange ]} else { [] })
                 # ...(if $denoiser != null { [-aom-params $'denoise-noise-level=($denoiser)'] } else { [] })
                 -y
                 $target_path
@@ -1855,16 +1886,17 @@ export def 'vid avif' [
 }
 
 export def 'vid avif-folder' [
-    --preset: int = 0
-    --threads: int = 8
+    --preset: int = 1
+    --threads: int = 2
     --crf: int = 25
     --norm # Don't delete source images
     --log-level: int = 1
+    --nosvt
 ] {
     let rm = not $norm
 
     glob '**/*.{png,jpg,jpeg,jfif,gif,webp,heif}' | par-each -t $threads { |p|
-        vid avif $p --preset $preset --crf $crf --rm=$rm --svt --log-level $log_level
+        vid avif $p --preset $preset --crf $crf --rm=$rm --log-level $log_level --nosvt=$nosvt
     }
 
     null

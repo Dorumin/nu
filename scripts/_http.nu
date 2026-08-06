@@ -18,3 +18,26 @@ export def 'http fetch-chunks' [
         }
     }
 }
+
+export def 'steam url' [
+    interface: string
+    method: string
+    version: int
+    params: record
+] {
+    $"https://api.steampowered.com/($interface)/($method)/v($version)/?" + ($params | insert key $env.STEAM_KEY | url build-query)
+}
+
+export def 'steam app-achievements' [
+    appid: int
+] {
+    http get (steam url ISteamUserStats GetGlobalAchievementPercentagesForApp 2 { gameid: $appid })
+}
+
+
+export def 'steam user-achievements' [
+    userid: int
+    appid: int
+] {
+    http get (steam url ISteamUserStats GetPlayerAchievements 1 { steamid: $userid, appid: $appid })
+}
